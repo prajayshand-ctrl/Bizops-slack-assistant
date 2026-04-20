@@ -1,22 +1,16 @@
-import { App, ExpressReceiver } from "@slack/bolt";
+import { App } from "@slack/bolt";
 
-const receiver = new ExpressReceiver({
-  signingSecret: process.env.SLACK_SIGNING_SECRET,
-  processBeforeResponse: true,
-});
-
+// Create app (NO receiver config here)
 const app = new App({
   token: process.env.SLACK_BOT_TOKEN,
-  receiver,
+  signingSecret: process.env.SLACK_SIGNING_SECRET,
 });
 
-const TARGET_CHANNEL = process.env.TARGET_CHANNEL_ID;
+// ===== HANDLERS =====
 
-// ===== MESSAGE HANDLER =====
 app.message(async ({ message, client }) => {
   if (message.subtype === "bot_message" || message.bot_id) return;
 
-  // DM behavior
   if (message.channel_type === "im") {
     await client.chat.postMessage({
       channel: message.channel,
@@ -25,8 +19,7 @@ app.message(async ({ message, client }) => {
     return;
   }
 
-  // Channel behavior (thread)
-  if (message.channel === TARGET_CHANNEL && !message.thread_ts) {
+  if (message.channel === process.env.TARGET_CHANNEL_ID && !message.thread_ts) {
     await client.chat.postMessage({
       channel: message.channel,
       thread_ts: message.ts,
@@ -68,7 +61,8 @@ app.message(async ({ message, client }) => {
   }
 });
 
-// ===== BUTTON HANDLER =====
+// ===== ACTIONS =====
+
 app.action("start_private_chat", async ({ ack, body, client }) => {
   await ack();
 
@@ -88,7 +82,6 @@ app.action("start_private_chat", async ({ ack, body, client }) => {
   });
 });
 
-// ===== NEW: BIZOPS HELP BUTTON =====
 app.action("bizops_help", async ({ ack, body, client }) => {
   await ack();
 
@@ -103,21 +96,19 @@ app.action("bizops_help", async ({ ack, body, client }) => {
   });
 });
 
-// ===== HANDLER =====
+// ===== VERCEL HANDLER =====
+
 export default async function handler(req, res) {
   try {
     if (req.method === "GET") {
       return res.status(200).send("Slack bot is running");
     }
 
-    if (req.method !== "POST") {
-      return res.status(405).send("Method Not Allowed");
-    }
+    await app.processEvent(req.body, req.headers);
 
-    // Let Bolt handle the request properly
-    return receiver.app(req, res);
+    return res.status(200).end();
   } catch (error) {
-    console.error("Slack handler error:", error);
+    console.error(error);
     return res.status(500).send("Internal Server Error");
   }
 }
