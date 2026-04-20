@@ -1,12 +1,14 @@
 import { App } from "@slack/bolt";
+import { VercelReceiver } from "@vercel/slack-bolt";
 
-// Create app (NO receiver config here)
+const receiver = new VercelReceiver();
+
 const app = new App({
   token: process.env.SLACK_BOT_TOKEN,
   signingSecret: process.env.SLACK_SIGNING_SECRET,
+  receiver,
+  processBeforeResponse: true,
 });
-
-// ===== HANDLERS =====
 
 app.message(async ({ message, client }) => {
   if (message.subtype === "bot_message" || message.bot_id) return;
@@ -61,8 +63,6 @@ app.message(async ({ message, client }) => {
   }
 });
 
-// ===== ACTIONS =====
-
 app.action("start_private_chat", async ({ ack, body, client }) => {
   await ack();
 
@@ -96,19 +96,10 @@ app.action("bizops_help", async ({ ack, body, client }) => {
   });
 });
 
-// ===== VERCEL HANDLER =====
-
 export default async function handler(req, res) {
-  try {
-    if (req.method === "GET") {
-      return res.status(200).send("Slack bot is running");
-    }
-
-    await app.processEvent(req.body, req.headers);
-
-    return res.status(200).end();
-  } catch (error) {
-    console.error(error);
-    return res.status(500).send("Internal Server Error");
+  if (req.method === "GET") {
+    return res.status(200).send("Slack bot is running");
   }
+
+  return receiver.app(req, res);
 }
