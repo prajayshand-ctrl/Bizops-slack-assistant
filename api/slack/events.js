@@ -1,105 +1,50 @@
-import { App } from "@slack/bolt";
-import { VercelReceiver } from "@vercel/slack-bolt";
+import { createHandler } from "@vercel/slack-bolt";
+import { app, receiver } from "../../lib/slackApp.js";
 
-const receiver = new VercelReceiver();
+const postHandler = createHandler(app, receiver);
 
-const app = new App({
-  token: process.env.SLACK_BOT_TOKEN,
-  signingSecret: process.env.SLACK_SIGNING_SECRET,
-  receiver,
-  processBeforeResponse: true,
-});
-
-app.message(async ({ message, client }) => {
-  if (message.subtype === "bot_message" || message.bot_id) return;
-
-  if (message.channel_type === "im") {
-    await client.chat.postMessage({
-      channel: message.channel,
-      text: "I can help with this privately. What are you trying to do?",
-    });
-    return;
-  }
-
-  if (message.channel === process.env.TARGET_CHANNEL_ID && !message.thread_ts) {
-    await client.chat.postMessage({
-      channel: message.channel,
-      thread_ts: message.ts,
-      text: "How do you want help?",
-      blocks: [
-        {
-          type: "section",
-          text: { type: "mrkdwn", text: "*How do you want help?*" },
-        },
-        {
-          type: "actions",
-          elements: [
-            {
-              type: "button",
-              text: { type: "plain_text", text: "Open BizOps Hub" },
-              url: process.env.BIZOPS_HUB_URL,
-            },
-            {
-              type: "button",
-              text: { type: "plain_text", text: "Ask BizOps AI" },
-              url: process.env.BIZOPS_GPT_URL,
-            },
-            {
-              type: "button",
-              text: { type: "plain_text", text: "Chat with BizOps Bot" },
-              value: "start_private_chat",
-              action_id: "start_private_chat",
-            },
-            {
-              type: "button",
-              text: { type: "plain_text", text: "Need BizOps Help" },
-              value: "bizops_help",
-              action_id: "bizops_help",
-            },
-          ],
-        },
-      ],
-    });
-  }
-});
-
-app.action("start_private_chat", async ({ ack, body, client }) => {
-  await ack();
-
-  const dm = await client.conversations.open({
-    users: body.user.id,
-  });
-
-  await client.chat.postMessage({
-    channel: dm.channel.id,
-    text: "I can help with this privately. What are you trying to do?",
-  });
-
-  await client.chat.postMessage({
-    channel: body.channel.id,
-    thread_ts: body.message.thread_ts || body.message.ts,
-    text: "I’ve opened a private chat with you — check your DMs 👋",
-  });
-});
-
-app.action("bizops_help", async ({ ack, body, client }) => {
-  await ack();
-
-  await client.chat.postMessage({
-    channel: body.channel.id,
-    thread_ts: body.message.thread_ts || body.message.ts,
-    text: `Post in #bizops_help with:
-- record link
-- what you're trying to do
-- exact error (if any)
-- what you've already tried`,
-  });
-});
+export const config = {
+  api: {
+    bodyParser: false,
+  },
+};
 
 export default async function handler(req, res) {
   if (req.method === "GET") {
     return res.status(200).send("Slack bot is running");
   }
 
-  return receiver.app(req, res);
+  // Convert Vercel Node req into a Web Request
+  const url = `https://${req.headers.host}${req.url}`;
+  const headers = new Headers();
+
+  for (const [key, value] of Object.entries(req.headers)) {
+    if (Array.isArray(value)) {
+      for (const v of value) headers.append(key, v);
+    } else if (value !== undefined) {
+      headers.set(key, value);
+    }
+  }
+
+  const chunks = [];
+  for await (const chunk of req) {
+    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+  }
+  const body = Buffer.concat(chunks);
+
+  const request = new Request(url, {
+    method: req.method,
+    headers,
+    body: req.method === "GET" || req.method === "HEAD" ? undefined : body,
+  });
+
+  const response = await postHandler(request);
+
+  res.status(response.status);
+  response.headers.forEach((value, key) => {
+    res.setHeader(key, value);
+  });
+
+  const text = await response.text();
+  return res.send(text);
 }
