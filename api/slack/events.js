@@ -1,6 +1,14 @@
-import { createSlackApp } from "../../lib/slackApp.js";
+import { App, ExpressReceiver } from "@slack/bolt";
 
-const app = createSlackApp();
+const receiver = new ExpressReceiver({
+  signingSecret: process.env.SLACK_SIGNING_SECRET,
+  processBeforeResponse: true,
+});
+
+const app = new App({
+  token: process.env.SLACK_BOT_TOKEN,
+  receiver,
+});
 
 const TARGET_CHANNEL = process.env.TARGET_CHANNEL_ID;
 
@@ -98,13 +106,6 @@ app.action("bizops_help", async ({ ack, body, client }) => {
 // ===== HANDLER =====
 export default async function handler(req, res) {
   try {
-    // Slack URL verification
-    if (req.body && req.body.type === "url_verification") {
-      return res.status(200).json({
-        challenge: req.body.challenge,
-      });
-    }
-
     if (req.method === "GET") {
       return res.status(200).send("Slack bot is running");
     }
@@ -113,9 +114,10 @@ export default async function handler(req, res) {
       return res.status(405).send("Method Not Allowed");
     }
 
-    await app.receiver.requestHandler(req, res);
+    // Let Bolt handle the request properly
+    return receiver.app(req, res);
   } catch (error) {
-    console.error("Slack events handler crashed:", error);
+    console.error("Slack handler error:", error);
     return res.status(500).send("Internal Server Error");
   }
 }
