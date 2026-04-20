@@ -97,9 +97,25 @@ app.action("bizops_help", async ({ ack, body, client }) => {
 
 // ===== HANDLER =====
 export default async function handler(req, res) {
-  if (req.method === "GET") {
-    return res.status(200).send("Slack bot is running");
-  }
+  try {
+    // Slack URL verification
+    if (req.body && req.body.type === "url_verification") {
+      return res.status(200).json({
+        challenge: req.body.challenge,
+      });
+    }
 
-  return app.receiver.requestHandler(req, res);
+    if (req.method === "GET") {
+      return res.status(200).send("Slack bot is running");
+    }
+
+    if (req.method !== "POST") {
+      return res.status(405).send("Method Not Allowed");
+    }
+
+    await app.receiver.requestHandler(req, res);
+  } catch (error) {
+    console.error("Slack events handler crashed:", error);
+    return res.status(500).send("Internal Server Error");
+  }
 }
